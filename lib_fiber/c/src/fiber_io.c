@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "fiber.h"
 #include "common.h"
 
 #include "fiber/libfiber.h"
@@ -8,7 +9,8 @@
 #include "./event.h"
 #include "hook/hook.h"
 #include "hook/io.h"
-#include "fiber.h"
+#include "sync/sync_waiter.h"
+#include "sync/sync_timer.h"
 
 typedef struct {
 	EVENT       *event;
@@ -22,6 +24,8 @@ typedef struct {
 #endif
 	ARRAY       *cache;
 	int          cache_max;
+	SYNC_WAITER *sync_waiter;
+	SYNC_TIMER  *sync_timer;
 } FIBER_TLS;
 
 static pthread_key_t __fiber_key;
@@ -248,6 +252,8 @@ static void fiber_io_loop(ACL_FIBER *self fiber_unused, void *ctx)
 	long long now, last = 0, left;
 
 	assert(ev == __thread_local->event);
+	__thread_local->sync_waiter = sync_waiter_get();
+	__thread_local->sync_timer  = sync_timer_get();
 
 	for (;;) {
 		while (acl_fiber_yield() > 0) {}
