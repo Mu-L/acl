@@ -521,6 +521,14 @@ void CWinFiberDlg::OnBnClickedThread()
 	// TODO: 在此添加控件通知处理程序代码
 	printf("The main thread: %ld\r\n", (long) GetCurrentThreadId());
 
+#if 1
+	acl::gofiber_wait_thread([] {
+		acl::gofiber_wait_thread([]{
+			printf("In gofiber_wait_thread, the main thread: %ld\r\n", (long) GetCurrentThreadId());
+		});
+	});
+#endif
+
 	go[] {
 		acl::wait_group sync;
 		sync.add(1);

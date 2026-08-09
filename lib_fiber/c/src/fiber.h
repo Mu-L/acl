@@ -118,6 +118,7 @@ void fiber_share_stack_set_dlen(size_t dlen);
 
 /* in fbase.c */
 void fbase_event_open(FIBER_BASE *fbase);
+void fbase_event_open2(FIBER_BASE *fbase, int thread_only);
 void fbase_event_close(FIBER_BASE *fbase);
 int fbase_event_wait(FIBER_BASE *fbase);
 int fbase_event_wakeup(FIBER_BASE *fbase);

@@ -192,7 +192,8 @@ static int thread_cond_timedwait(ACL_FIBER_COND *cond, ACL_FIBER_MUTEX *mutex,
 
 	// The in/out fds opened by fbase_event_open() will be closed
 	// in sync_obj_unrefer().
-	fbase_event_open(obj->base);
+	// Use thread-only mode to create FILE_EVENT to avoid starting the fiber.
+	fbase_event_open2(obj->base, 1);
 
 	LOCK_COND(cond);
 	array_append(cond->waiters, obj);

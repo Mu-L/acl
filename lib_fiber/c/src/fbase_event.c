@@ -25,7 +25,12 @@
 
 //#undef	HAS_EVENTFD
 
-void fbase_event_open(FIBER_BASE *fbase)
+void fbase_event_open(FIBER_BASE* fbase)
+{
+	fbase_event_open2(fbase, 0);
+}
+
+void fbase_event_open2(FIBER_BASE *fbase, int thread_only)
 {
 #if defined(HAS_EVENTFD)
 	int flags = 0;
@@ -59,9 +64,15 @@ void fbase_event_open(FIBER_BASE *fbase)
 			__FILE__, __LINE__, __FUNCTION__, (int) fbase->event_in);
 	}
 
-	fbase->in = fiber_file_open(fbase->event_in);
+	if (thread_only) {
+		fbase->in = file_event_alloc(fbase->event_in);
+	} else {
+		fbase->in = fiber_file_open(fbase->event_in);
+	}
 	if (fbase->event_in == fbase->event_out) {
 		fbase->out = fbase->in;
+	} else if (thread_only) {
+		fbase->out = file_event_alloc(fbase->event_out);
 	} else {
 		fbase->out = fiber_file_open(fbase->event_out);
 	}
