@@ -24,6 +24,12 @@ public:
 	 */
 	bool load_ca(const char* ca_file, const char* ca_path);
 
+	/** Load the operating system/OpenSSL default trusted CA locations. */
+	bool load_default_ca();
+
+	/** Enable client certificate hostname verification for host. */
+	bool set_verify_host(const char* host);
+
 	/**
 	 * @override
 	 */
@@ -171,4 +177,3 @@ private:
 };
 
 } // namespace acl
-

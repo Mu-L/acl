@@ -193,6 +193,18 @@ static ssl_ctx_set_verify_fn __ssl_ctx_set_verify;
 typedef int (*ssl_ctx_load_verify_locations_fn)(const SSL_CTX*, const char*, const char*);
 static ssl_ctx_load_verify_locations_fn __ssl_ctx_load_verify_locations;
 
+#define SSL_CTX_SET_DEFAULT_VERIFY_PATHS "SSL_CTX_set_default_verify_paths"
+typedef int (*ssl_ctx_set_default_verify_paths_fn)(SSL_CTX*);
+static ssl_ctx_set_default_verify_paths_fn __ssl_ctx_set_default_verify_paths;
+
+#define SSL_CTX_GET0_PARAM              "SSL_CTX_get0_param"
+typedef X509_VERIFY_PARAM* (*ssl_ctx_get0_param_fn)(SSL_CTX*);
+static ssl_ctx_get0_param_fn __ssl_ctx_get0_param;
+
+#define X509_VERIFY_PARAM_SET1_HOST     "X509_VERIFY_PARAM_set1_host"
+typedef int (*x509_verify_param_set1_host_fn)(X509_VERIFY_PARAM*, const char*, size_t);
+static x509_verify_param_set1_host_fn __x509_verify_param_set1_host;
+
 #define SSL_GET_EX_NEW_INDEX		"CRYPTO_get_ex_new_index"
 typedef int (*ssl_get_ex_new_index_fn)(int, long, void*, CRYPTO_EX_new *, CRYPTO_EX_dup *, CRYPTO_EX_free *);
 static ssl_get_ex_new_index_fn		__ssl_get_ex_new_index;
@@ -336,6 +348,9 @@ static bool load_from_ssl(void)
 	LOAD_SSL(SSL_SET_OPTIONS, ssl_set_options_fn, __ssl_set_options);
 	LOAD_SSL(SSL_CTX_SET_VERIFY, ssl_ctx_set_verify_fn, __ssl_ctx_set_verify);
 	LOAD_SSL(SSL_CTX_LOAD_VERIFY_LOCATIONS, ssl_ctx_load_verify_locations_fn, __ssl_ctx_load_verify_locations);
+	LOAD_SSL(SSL_CTX_SET_DEFAULT_VERIFY_PATHS, ssl_ctx_set_default_verify_paths_fn, __ssl_ctx_set_default_verify_paths);
+	LOAD_SSL(SSL_CTX_GET0_PARAM, ssl_ctx_get0_param_fn, __ssl_ctx_get0_param);
+	LOAD_CRYPTO(X509_VERIFY_PARAM_SET1_HOST, x509_verify_param_set1_host_fn, __x509_verify_param_set1_host);
 	return true;
 }
 
@@ -448,6 +463,9 @@ static void openssl_dll_load(void)
 #  define __openssl_sk_value		OPENSSL_sk_value
 #  define __ssl_ctx_set_verify		SSL_CTX_set_verify
 #  define __ssl_ctx_load_verify_locations		SSL_CTX_load_verify_locations
+#  define __ssl_ctx_set_default_verify_paths	SSL_CTX_set_default_verify_paths
+#  define __ssl_ctx_get0_param		SSL_CTX_get0_param
+#  define __x509_verify_param_set1_host	X509_VERIFY_PARAM_set1_host
 #  define __ssl_get_ex_new_index	CRYPTO_get_ex_new_index
 #  define __ssl_set_ex_data		SSL_set_ex_data
 #  define __ssl_get_ex_data		SSL_get_ex_data
@@ -977,15 +995,15 @@ int openssl_conf::sni_callback(SSL *ssl, int *ad, void *arg)
 #endif
 }
 
-bool openssl_conf::load_ca(const char* ca_file, const char* /* ca_path */)
+bool openssl_conf::load_ca(const char* ca_file, const char* ca_path)
 {
 	if (status_ != CONF_INIT_OK) {
 		logger_error("OpenSSL not init , status=%d", (int) status_);
 		return false;
 	}
 
-	if (ca_file == NULL) {
-		logger_error("ca_file NULL");
+	if (ca_file == NULL && ca_path == NULL) {
+		logger_error("ca_file and ca_path NULL");
 		return false;
 	}
 
@@ -998,25 +1016,53 @@ bool openssl_conf::load_ca(const char* ca_file, const char* /* ca_path */)
 	if (server_side_) {
 		__ssl_ctx_set_verify(ssl_ctx_, SSL_VERIFY_PEER
 				| SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-		return __ssl_ctx_load_verify_locations(ssl_ctx_,ca_file,NULL) > 0;
+		return __ssl_ctx_load_verify_locations(ssl_ctx_, ca_file, ca_path) > 0;
 	}
 
+	__ssl_ctx_set_verify(ssl_ctx_, SSL_VERIFY_PEER, NULL);
 	__ssl_ctx_set_verify_depth(ssl_ctx_, 5);
-
-	STACK_OF(X509_NAME)* list = __ssl_load_client_ca(ca_file);
-	if (list == NULL) {
-		logger_error("load CA file(%s) error", ca_file);
-		return false;
-	}
-
-	// Before 0.9.7h and 0.9.8 SSL_load_client_CA_file()
-	// always leaved an error in the error queue. -- nginx
-	__ssl_clear_error();
-
-	__ssl_ctx_set_client_ca(ssl_ctx_, list);
-	return true;
+	return __ssl_ctx_load_verify_locations(ssl_ctx_, ca_file, ca_path) > 0;
 #else
 	logger_error("HAS_OPENSSL not defined!");
+	return false;
+#endif
+}
+
+bool openssl_conf::load_default_ca()
+{
+	if (status_ != CONF_INIT_OK) {
+		logger_error("OpenSSL not init , status=%d", (int) status_);
+		return false;
+	}
+#ifdef HAS_OPENSSL
+	if (ssl_ctx_ == NULL) {
+		create_ssl_ctx();
+	}
+	if (server_side_) {
+		logger_error("load_default_ca is only valid in client mode");
+		return false;
+	}
+	__ssl_ctx_set_verify(ssl_ctx_, SSL_VERIFY_PEER, NULL);
+	__ssl_ctx_set_verify_depth(ssl_ctx_, 5);
+	return __ssl_ctx_set_default_verify_paths(ssl_ctx_) > 0;
+#else
+	return false;
+#endif
+}
+
+bool openssl_conf::set_verify_host(const char* host)
+{
+	if (status_ != CONF_INIT_OK || host == NULL || *host == '\0') {
+		return false;
+	}
+#ifdef HAS_OPENSSL
+	if (ssl_ctx_ == NULL) {
+		create_ssl_ctx();
+	}
+	X509_VERIFY_PARAM* param = __ssl_ctx_get0_param(ssl_ctx_);
+	return param != NULL
+		&& __x509_verify_param_set1_host(param, host, 0) > 0;
+#else
 	return false;
 #endif
 }
